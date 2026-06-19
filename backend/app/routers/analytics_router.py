@@ -1,0 +1,161 @@
+from fastapi import APIRouter, Depends
+from app.db.database import tickets_collection
+from app.models.user import UserRole
+from app.auth.dependencies import require_roles
+
+router = APIRouter(prefix="/api/analytics", tags=["Analytics"])
+
+PENDING_STATUSES = ["open", "in_progress"]
+COMPLETED_STATUSES = ["resolved", "closed"]
+
+
+@router.get("/overview")
+async def get_overview(_admin=Depends(require_roles(UserRole.ADMIN))):
+    """Top-level stat cards: total, open, in-progress, resolved, closed, avg resolution time (hours)."""
+    pipeline = [{"$group": {"_id": "$status", "count": {"$sum": 1}}}]
+    status_counts = {doc["_id"]: doc["count"] async for doc in tickets_collection.aggregate(pipeline)}
+    total = sum(status_counts.values())
+
+    resolution_pipeline = [
+        {"$match": {"resolved_at": {"$ne": None}}},
+        {"$project": {"resolution_hours": {"$divide": [{"$subtract": ["$resolved_at", "$created_at"]}, 1000 * 60 * 60]}}},
+        {"$group": {"_id": None, "avg_hours": {"$avg": "$resolution_hours"}}},
+    ]
+    avg_result = await tickets_collection.aggregate(resolution_pipeline).to_list(length=1)
+    avg_resolution_hours = round(avg_result[0]["avg_hours"], 2) if avg_result else None
+
+    return {
+        "total_tickets": total,
+        "open": status_counts.get("open", 0),
+        "in_progress": status_counts.get("in_progress", 0),
+        "resolved": status_counts.get("resolved", 0),
+        "closed": status_counts.get("closed", 0),
+        "average_resolution_time_hours": avg_resolution_hours,
+    }
+
+
+@router.get("/staff-performance")
+async def get_staff_performance(_admin=Depends(require_roles(UserRole.ADMIN))):
+    """Per staff member: total assigned, completed, pending, and average resolution time."""
+    pipeline = [
+        {"$match": {"assigned_to": {"$ne": None}}},
+        {
+            "$group": {
+                "_id": "$assigned_to",
+                "staff_name": {"$first": "$assigned_to_name"},
+                "total_assigned": {"$sum": 1},
+                "completed": {"$sum": {"$cond": [{"$in": ["$status", COMPLETED_STATUSES]}, 1, 0]}},
+                "pending": {"$sum": {"$cond": [{"$in": ["$status", PENDING_STATUSES]}, 1, 0]}},
+                "resolution_times": {
+                    "$push": {
+                        "$cond": [
+                            {"$ne": ["$resolved_at", None]},
+                            {"$divide": [{"$subtract": ["$resolved_at", "$created_at"]}, 1000 * 60 * 60]},
+                            None,
+                        ]
+                    }
+                },
+            }
+        },
+        {
+            "$project": {
+                "_id": 0,
+                "staff_id": {"$toString": "$_id"},
+                "staff_name": 1,
+                "total_assigned": 1,
+                "completed": 1,
+                "pending": 1,
+                "resolution_times": {"$filter": {"input": "$resolution_times", "as": "t", "cond": {"$ne": ["$$t", None]}}},
+            }
+        },
+    ]
+    results = await tickets_collection.aggregate(pipeline).to_list(length=None)
+    for r in results:
+        times = r.pop("resolution_times")
+        r["average_resolution_time_hours"] = round(sum(times) / len(times), 2) if times else None
+    return results
+
+
+@router.get("/product-wise")
+async def get_product_wise_analysis(_admin=Depends(require_roles(UserRole.ADMIN))):
+    """Complaint volume and status breakdown per product."""
+    pipeline = [
+        {
+            "$group": {
+                "_id": "$product_id",
+                "product_name": {"$first": "$product_name"},
+                "total_complaints": {"$sum": 1},
+                "open": {"$sum": {"$cond": [{"$eq": ["$status", "open"]}, 1, 0]}},
+                "in_progress": {"$sum": {"$cond": [{"$eq": ["$status", "in_progress"]}, 1, 0]}},
+                "resolved": {"$sum": {"$cond": [{"$eq": ["$status", "resolved"]}, 1, 0]}},
+                "closed": {"$sum": {"$cond": [{"$eq": ["$status", "closed"]}, 1, 0]}},
+            }
+        },
+        {"$project": {"_id": 0, "product_id": {"$toString": "$_id"}, "product_name": 1, "total_complaints": 1, "open": 1, "in_progress": 1, "resolved": 1, "closed": 1}},
+        {"$sort": {"total_complaints": -1}},
+    ]
+    return await tickets_collection.aggregate(pipeline).to_list(length=None)
+
+
+@router.get("/team-performance")
+async def get_team_performance(_admin=Depends(require_roles(UserRole.ADMIN))):
+    """Aggregate performance metrics rolled up per team."""
+    pipeline = [
+        {"$match": {"team_id": {"$ne": None}}},
+        {
+            "$group": {
+                "_id": "$team_id",
+                "total_tickets": {"$sum": 1},
+                "resolved": {"$sum": {"$cond": [{"$in": ["$status", COMPLETED_STATUSES]}, 1, 0]}},
+                "pending": {"$sum": {"$cond": [{"$in": ["$status", PENDING_STATUSES]}, 1, 0]}},
+                "resolution_times": {
+                    "$push": {
+                        "$cond": [
+                            {"$ne": ["$resolved_at", None]},
+                            {"$divide": [{"$subtract": ["$resolved_at", "$created_at"]}, 1000 * 60 * 60]},
+                            None,
+                        ]
+                    }
+                },
+            }
+        },
+        {"$lookup": {"from": "teams", "localField": "_id", "foreignField": "_id", "as": "team_info"}},
+        {
+            "$project": {
+                "_id": 0,
+                "team_id": {"$toString": "$_id"},
+                "team_name": {"$arrayElemAt": ["$team_info.name", 0]},
+                "total_tickets": 1,
+                "resolved": 1,
+                "pending": 1,
+                "resolution_times": {"$filter": {"input": "$resolution_times", "as": "t", "cond": {"$ne": ["$$t", None]}}},
+            }
+        },
+    ]
+    results = await tickets_collection.aggregate(pipeline).to_list(length=None)
+    for r in results:
+        times = r.pop("resolution_times")
+        r["average_resolution_time_hours"] = round(sum(times) / len(times), 2) if times else None
+    return results
+
+
+@router.get("/ticket-resolution-times")
+async def get_ticket_resolution_times(_admin=Depends(require_roles(UserRole.ADMIN))):
+    """Time taken for each individual resolved ticket — used for the resolution trend chart."""
+    pipeline = [
+        {"$match": {"resolved_at": {"$ne": None}}},
+        {
+            "$project": {
+                "_id": 0,
+                "ticket_id": {"$toString": "$_id"},
+                "title": 1,
+                "product_name": 1,
+                "assigned_to_name": 1,
+                "created_at": 1,
+                "resolved_at": 1,
+                "resolution_time_hours": {"$round": [{"$divide": [{"$subtract": ["$resolved_at", "$created_at"]}, 1000 * 60 * 60]}, 2]},
+            }
+        },
+        {"$sort": {"resolved_at": -1}},
+    ]
+    return await tickets_collection.aggregate(pipeline).to_list(length=None)
