@@ -1,9 +1,168 @@
+/* ── Google Fonts — Inter (must precede @tailwind directives) ───────────── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --sidebar-w: 240px;
+  }
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
   body {
-    @apply bg-gray-50 text-gray-900 antialiased;
+    @apply bg-gray-50 text-gray-900 antialiased font-sans;
+  }
+
+  /* Consistent focus ring across the app */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ink-700 ring-offset-1;
   }
 }
+
+@layer components {
+
+  /* ── Buttons ────────────────────────────────────────────────────────── */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 font-medium rounded-lg
+           text-sm px-4 py-2 transition-all duration-150
+           disabled:opacity-50 disabled:cursor-not-allowed select-none;
+  }
+  .btn-primary {
+    @apply btn bg-ink-700 hover:bg-ink-800 active:bg-ink-900 text-white
+           shadow-sm;
+  }
+  .btn-secondary {
+    @apply btn bg-white hover:bg-gray-50 active:bg-gray-100 text-gray-700
+           border border-gray-300;
+  }
+  .btn-danger {
+    @apply btn bg-red-600 hover:bg-red-700 active:bg-red-800 text-white;
+  }
+  .btn-ghost {
+    @apply btn bg-transparent hover:bg-gray-100 active:bg-gray-200 text-gray-600;
+  }
+  .btn-amber {
+    @apply btn bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white;
+  }
+
+  /* Size modifiers */
+  .btn-sm { @apply px-3 py-1.5 text-xs; }
+  .btn-lg { @apply px-6 py-3 text-base; }
+
+  /* ── Form inputs ────────────────────────────────────────────────────── */
+  .input,
+  .input-field {
+    @apply w-full border border-gray-300 rounded-lg px-3 py-2 text-sm
+           bg-white placeholder:text-gray-400
+           focus:outline-none focus:ring-2 focus:ring-ink-700 focus:border-ink-700
+           transition-colors duration-150
+           disabled:bg-gray-50 disabled:text-gray-500 disabled:cursor-not-allowed;
+  }
+  .input-error {
+    @apply border-red-400 focus:ring-red-400 focus:border-red-400;
+  }
+  .label {
+    @apply block text-sm font-medium text-gray-700 mb-1;
+  }
+  .field-error {
+    @apply mt-1 text-xs text-red-600 flex items-center gap-1;
+  }
+
+  /* ── Cards ──────────────────────────────────────────────────────────── */
+  .card {
+    @apply bg-white rounded-xl border border-gray-200 shadow-card;
+  }
+  .card-hover {
+    @apply card transition-shadow duration-150 hover:shadow-md;
+  }
+
+  /* ── Badges / pills ─────────────────────────────────────────────────── */
+  .badge {
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full
+           text-xs font-medium;
+  }
+
+  /* Status-specific badge colours (mapped to our design tokens) */
+  .badge-open        { @apply badge bg-blue-50   text-blue-800; }
+  .badge-in_progress { @apply badge bg-amber-50  text-amber-800; }
+  .badge-resolved    { @apply badge bg-green-50  text-green-800; }
+  .badge-closed      { @apply badge bg-slate-100 text-slate-700; }
+
+  /* Priority badge colours */
+  .badge-low    { @apply badge bg-slate-100 text-slate-600; }
+  .badge-medium { @apply badge bg-orange-50 text-orange-700; }
+  .badge-high   { @apply badge bg-red-50   text-red-700; }
+  .badge-urgent { @apply badge bg-red-100  text-red-900 font-semibold; }
+
+  /* Role badge colours */
+  .badge-admin    { @apply badge bg-purple-100 text-purple-800; }
+  .badge-staff    { @apply badge bg-ink-100   text-ink-800; }
+  .badge-customer { @apply badge bg-gray-100  text-gray-700; }
+
+  /* ── Sidebar nav links ──────────────────────────────────────────────── */
+  .nav-link {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium
+           text-slate-300 hover:bg-ink-700 hover:text-white
+           transition-colors duration-150;
+  }
+  .nav-link-active {
+    @apply bg-ink-700 text-white;
+  }
+
+  /* ── Table ──────────────────────────────────────────────────────────── */
+  .table-th {
+    @apply px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider;
+  }
+  .table-td {
+    @apply px-4 py-3 text-sm text-gray-700;
+  }
+  .table-row {
+    @apply border-b border-gray-50 hover:bg-gray-50 transition-colors;
+  }
+
+  /* ── Section headers ────────────────────────────────────────────────── */
+  .section-title {
+    @apply text-sm font-semibold text-gray-700;
+  }
+
+  /* ── Stat card ──────────────────────────────────────────────────────── */
+  .stat-card {
+    @apply card p-5 flex flex-col gap-1;
+  }
+  .stat-value {
+    @apply text-3xl font-bold text-gray-900 tabular-nums;
+  }
+  .stat-label {
+    @apply text-sm text-gray-500 font-medium;
+  }
+
+  /* ── Timeline ───────────────────────────────────────────────────────── */
+  .timeline-dot {
+    @apply absolute -left-2.5 w-5 h-5 rounded-full ring-4 ring-white
+           flex items-center justify-center;
+  }
+}
+
+/* ── Utility: line clamp (graceful fallback) ─────────────────────────────── */
+.line-clamp-1 { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; }
+.line-clamp-2 { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+/* ── Modal animation ─────────────────────────────────────────────────────── */
+@keyframes modal-in {
+  from { opacity: 0; transform: scale(0.95) translateY(10px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0); }
+}
+.modal-animate {
+  animation: modal-in 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ── Scrollbar (Webkit) ──────────────────────────────────────────────────── */
+::-webkit-scrollbar       { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { @apply bg-gray-300 rounded-full; }
+::-webkit-scrollbar-thumb:hover { @apply bg-gray-400; }
