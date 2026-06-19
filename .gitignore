@@ -1,5 +1,13 @@
-# Python
+# ── Secrets — never commit ───────────────────────────────────────────────────
+.env
+backend/.env
+frontend/.env
+frontend/.env.local
+frontend/.env.production
+
+# ── Python ────────────────────────────────────────────────────────────────────
 venv/
+backend/venv/
 __pycache__/
 *.py[cod]
 *.pyo
@@ -9,19 +17,19 @@ __pycache__/
 dist/
 build/
 
-# Environment — contains secrets, never commit
-backend/.env
-
-# Node
+# ── Node ──────────────────────────────────────────────────────────────────────
 node_modules/
+frontend/node_modules/
 frontend/dist/
-frontend/.env
-frontend/.env.local
 
-# OS
+# ── Test artifacts ────────────────────────────────────────────────────────────
+frontend/test-screenshots/
+frontend/test-results.txt
+
+# ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 
-# IDE
+# ── IDE ───────────────────────────────────────────────────────────────────────
 .vscode/settings.json
 .idea/
