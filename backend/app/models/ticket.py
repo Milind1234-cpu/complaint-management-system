@@ -46,6 +46,11 @@ class TicketCommentCreate(BaseModel):
     comment: str = Field(min_length=1, max_length=2000)
 
 
+class TicketRatingSubmit(BaseModel):
+    rating: int = Field(ge=1, le=5)
+    comment: str | None = Field(default=None, max_length=1000)
+
+
 class TicketOut(MongoBaseModel):
     title: str
     description: str
@@ -63,3 +68,6 @@ class TicketOut(MongoBaseModel):
     updated_at: datetime
     resolved_at: datetime | None = None
     closed_at: datetime | None = None
+    satisfaction_rating: int | None = None
+    satisfaction_comment: str | None = None
+    rated_at: datetime | None = None

@@ -1,19 +1,20 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { getTicket, updateStatus, addComment, reassignTicket } from '../api/tickets'
+import { getTicket, updateStatus, addComment, reassignTicket, rateTicket } from '../api/tickets'
 import { getUsers } from '../api/users'
 import { useAuth } from '../context/AuthContext'
 import StatusBadge from '../components/tickets/StatusBadge'
 import ActivityTimeline from '../components/tickets/ActivityTimeline'
 import Badge from '../components/ui/Badge'
 import { format } from 'date-fns'
+import StarRating from '../components/ui/StarRating'
 
 const STATUSES = ['open', 'in_progress', 'resolved', 'closed']
 
 export default function TicketDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { isCustomer, isAdmin } = useAuth()
+  const { isCustomer, isAdmin, user } = useAuth()
 
   const [ticket, setTicket]         = useState(null)
   const [loading, setLoading]       = useState(true)
@@ -25,6 +26,11 @@ export default function TicketDetailPage() {
   const [updating, setUpdating]     = useState(false)
   const [reassignTo, setReassignTo] = useState('')
   const [reassigning, setReassigning] = useState(false)
+
+  const [ratingValue, setRatingValue]       = useState(0)
+  const [ratingComment, setRatingComment]   = useState('')
+  const [submittingRating, setSubmittingRating] = useState(false)
+  const [ratingError, setRatingError]       = useState(null)
 
   const load = useCallback(() => {
     getTicket(id).then((r) => {
@@ -232,6 +238,82 @@ export default function TicketDetailPage() {
           </button>
         </form>
       </div>
+
+      {/* ── Rating section ── */}
+      {/* Interactive rating form — shown when: customer, creator, resolved/closed, not yet rated */}
+      {isCustomer &&
+        user?._id === ticket.created_by &&
+        ['resolved', 'closed'].includes(ticket.status) &&
+        ticket.satisfaction_rating == null && (
+        <div className="card p-5">
+          <h2 className="text-sm font-semibold text-gray-700 mb-3">Rate this ticket</h2>
+          {ratingError && (
+            <p className="text-sm text-red-600 mb-3">{ratingError}</p>
+          )}
+          <div className="space-y-3">
+            <StarRating
+              value={ratingValue}
+              onChange={setRatingValue}
+              size="lg"
+            />
+            <textarea
+              rows={3}
+              value={ratingComment}
+              onChange={(e) => setRatingComment(e.target.value)}
+              placeholder="Optional comment… (max 1000 characters)"
+              maxLength={1000}
+              className="input-field resize-none"
+            />
+            <button
+              type="button"
+              disabled={submittingRating || ratingValue === 0}
+              className="btn-primary"
+              onClick={async () => {
+                if (ratingValue === 0) return
+                setSubmittingRating(true)
+                setRatingError(null)
+                try {
+                  await rateTicket(id, {
+                    rating: ratingValue,
+                    comment: ratingComment.trim() || undefined,
+                  })
+                  setRatingValue(0)
+                  setRatingComment('')
+                  load()
+                } catch (err) {
+                  setRatingError(
+                    err?.response?.data?.detail ?? 'Failed to submit rating. Please try again.'
+                  )
+                } finally {
+                  setSubmittingRating(false)
+                }
+              }}
+            >
+              {submittingRating ? 'Submitting…' : 'Submit Rating'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Read-only rating display — shown when already rated and is the creator customer */}
+      {isCustomer &&
+        user?._id === ticket.created_by &&
+        ticket.satisfaction_rating != null && (
+        <div className="card p-5">
+          <h2 className="text-sm font-semibold text-gray-700 mb-3">Your Rating</h2>
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <StarRating value={ticket.satisfaction_rating} readOnly size="md" />
+              <span className="text-sm text-gray-600">
+                You rated: <span className="font-semibold">{ticket.satisfaction_rating}/5</span>
+              </span>
+            </div>
+            {ticket.satisfaction_comment && (
+              <p className="text-sm text-gray-500 italic">"{ticket.satisfaction_comment}"</p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

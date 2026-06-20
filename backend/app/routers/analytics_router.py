@@ -257,3 +257,76 @@ async def export_product_wise_csv(_admin=Depends(require_roles(UserRole.ADMIN)))
     ]
     headers = ["Product Name", "Total Complaints", "Open", "In Progress", "Resolved", "Closed"]
     return _make_csv_response(rows, headers, "product_wise")
+
+
+async def _satisfaction_overview_data() -> dict:
+    """Compute satisfaction rating overview: overall stats + per-staff breakdown."""
+    # Overall stats
+    overall_pipeline = [
+        {"$match": {"satisfaction_rating": {"$ne": None}}},
+        {
+            "$group": {
+                "_id": None,
+                "average_rating": {"$avg": "$satisfaction_rating"},
+                "total_ratings": {"$sum": 1},
+                "ratings": {"$push": "$satisfaction_rating"},
+            }
+        },
+    ]
+    overall_result = await tickets_collection.aggregate(overall_pipeline).to_list(length=1)
+
+    if not overall_result:
+        return {
+            "average_rating": None,
+            "total_ratings": 0,
+            "rating_distribution": {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0},
+            "per_staff_satisfaction": [],
+        }
+
+    overall = overall_result[0]
+    average_rating = round(overall["average_rating"], 2)
+    total_ratings = overall["total_ratings"]
+
+    # Build distribution from pushed ratings list
+    distribution = {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0}
+    for r in overall["ratings"]:
+        key = str(int(r))
+        if key in distribution:
+            distribution[key] += 1
+
+    # Per-staff breakdown
+    staff_pipeline = [
+        {"$match": {"satisfaction_rating": {"$ne": None}, "assigned_to": {"$ne": None}}},
+        {
+            "$group": {
+                "_id": "$assigned_to",
+                "staff_name": {"$first": "$assigned_to_name"},
+                "average_rating": {"$avg": "$satisfaction_rating"},
+                "total_ratings": {"$sum": 1},
+            }
+        },
+        {
+            "$project": {
+                "_id": 0,
+                "staff_id": {"$toString": "$_id"},
+                "staff_name": 1,
+                "average_rating": {"$round": ["$average_rating", 2]},
+                "total_ratings": 1,
+            }
+        },
+        {"$sort": {"average_rating": -1}},
+    ]
+    per_staff = await tickets_collection.aggregate(staff_pipeline).to_list(length=None)
+
+    return {
+        "average_rating": average_rating,
+        "total_ratings": total_ratings,
+        "rating_distribution": distribution,
+        "per_staff_satisfaction": per_staff,
+    }
+
+
+@router.get("/satisfaction-overview")
+async def get_satisfaction_overview(_admin=Depends(require_roles(UserRole.ADMIN))):
+    """Overall customer satisfaction stats and per-staff breakdown."""
+    return await _satisfaction_overview_data()

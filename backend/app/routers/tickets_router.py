@@ -9,6 +9,7 @@ from app.models.ticket import (
     TicketStatusUpdate,
     TicketReassign,
     TicketCommentCreate,
+    TicketRatingSubmit,
 )
 from app.models.common import utc_now
 from app.models.user import UserOut, UserRole
@@ -217,6 +218,56 @@ async def add_comment(
     result = await tickets_collection.find_one_and_update(
         {"_id": ObjectId(ticket_id)},
         {"$push": {"activity_log": log_entry}, "$set": {"updated_at": utc_now()}},
+        return_document=True,
+    )
+    return TicketOut(**result)
+
+
+@router.post("/{ticket_id}/rate", response_model=TicketOut)
+async def rate_ticket(
+    ticket_id: str,
+    payload: TicketRatingSubmit,
+    current_user: UserOut = Depends(get_current_user),
+):
+    try:
+        oid = ObjectId(ticket_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid ticket ID")
+
+    ticket = await tickets_collection.find_one({"_id": oid})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    # Only the customer who created the ticket can rate it
+    if str(ticket["created_by"]) != current_user.id:
+        raise HTTPException(status_code=403, detail="You are not authorized to rate this ticket")
+
+    # Ticket must be resolved or closed
+    if ticket["status"] not in ("resolved", "closed"):
+        raise HTTPException(status_code=400, detail="Ticket must be resolved before rating")
+
+    # Only allow rating once
+    if ticket.get("satisfaction_rating") is not None:
+        raise HTTPException(status_code=400, detail="This ticket has already been rated")
+
+    now = utc_now()
+    log_entry = _log_entry(
+        "rated",
+        f"Customer rated this ticket {payload.rating}/5 stars",
+        current_user,
+    )
+
+    result = await tickets_collection.find_one_and_update(
+        {"_id": oid},
+        {
+            "$set": {
+                "satisfaction_rating": payload.rating,
+                "satisfaction_comment": payload.comment,
+                "rated_at": now,
+                "updated_at": now,
+            },
+            "$push": {"activity_log": log_entry},
+        },
         return_document=True,
     )
     return TicketOut(**result)

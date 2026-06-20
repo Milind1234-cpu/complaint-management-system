@@ -13,6 +13,7 @@ import {
   exportTicketsCSV,
   exportStaffPerformanceCSV,
   exportProductWiseCSV,
+  getSatisfactionOverview,
 } from '../api/analytics'
 
 // ── Design tokens (matches tailwind.config.js ink/amber palette) ──────────────
@@ -476,15 +477,96 @@ function ResolutionSection({ data }) {
   )
 }
 
+// ── Section 6: Customer Satisfaction ─────────────────────────────────────────
+
+function SatisfactionSection({ data }) {
+  if (!data) return <Spinner />
+  if (data.total_ratings === 0) return <EmptyState msg="No ratings yet — customers can rate resolved tickets." />
+
+  const distData = [1, 2, 3, 4, 5].map((star) => ({
+    name: `${star}★`,
+    count: data.rating_distribution?.[String(star)] ?? 0,
+  }))
+
+  const staffSorted = [...(data.per_staff_satisfaction ?? [])].sort(
+    (a, b) => (b.average_rating ?? 0) - (a.average_rating ?? 0)
+  )
+
+  return (
+    <div className="space-y-5">
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="card p-5 border-l-4 border-l-amber-500">
+          <p className="text-2xl font-bold text-gray-900 tabular-nums">
+            {data.average_rating != null ? `${data.average_rating} ★` : 'N/A'}
+          </p>
+          <p className="text-sm font-medium text-gray-600 mt-1">Average Rating</p>
+          <p className="text-xs text-gray-400 mt-0.5">out of 5</p>
+        </div>
+        <div className="card p-5 border-l-4 border-l-ink-700">
+          <p className="text-2xl font-bold text-gray-900 tabular-nums">{data.total_ratings}</p>
+          <p className="text-sm font-medium text-gray-600 mt-1">Total Ratings</p>
+          <p className="text-xs text-gray-400 mt-0.5">ratings collected</p>
+        </div>
+      </div>
+
+      {/* Rating distribution bar chart */}
+      <div className="card p-5">
+        <p className="text-xs text-gray-400 mb-3">Distribution of ratings across all reviewed tickets</p>
+        <ResponsiveContainer width="100%" height={180}>
+          <BarChart data={distData} margin={{ top: 5, right: 16, bottom: 5, left: 0 }} barCategoryGap="30%">
+            <CartesianGrid strokeDasharray="3 3" stroke="#d5dce9" />
+            <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+            <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+            <Tooltip content={<ChartTooltip />} />
+            <Bar dataKey="count" name="Ratings" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Per-staff satisfaction table */}
+      {staffSorted.length > 0 && (
+        <div className="card overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider border-b border-gray-100">
+              <tr>
+                <th className="px-4 py-3 text-left">Staff Member</th>
+                <th className="px-4 py-3 text-right">Avg Rating</th>
+                <th className="px-4 py-3 text-right">Total Ratings</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {staffSorted.map((s) => (
+                <tr key={s.staff_id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-4 py-3 font-medium text-gray-900">
+                    {s.staff_name ?? s.staff_id}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums font-semibold text-amber-600">
+                    {s.average_rating != null ? `${s.average_rating} ★` : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-gray-500">
+                    {s.total_ratings}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
-  const [overview,       setOverview]       = useState(null)
-  const [staffData,      setStaffData]      = useState(null)
-  const [productData,    setProductData]    = useState(null)
-  const [teamData,       setTeamData]       = useState(null)
-  const [resolutionData, setResolutionData] = useState(null)
-  const [error,          setError]          = useState(null)
+  const [overview,          setOverview]          = useState(null)
+  const [staffData,         setStaffData]         = useState(null)
+  const [productData,       setProductData]       = useState(null)
+  const [teamData,          setTeamData]          = useState(null)
+  const [resolutionData,    setResolutionData]    = useState(null)
+  const [satisfactionData,  setSatisfactionData]  = useState(null)
+  const [error,             setError]             = useState(null)
 
   useEffect(() => {
     Promise.allSettled([
@@ -493,7 +575,8 @@ export default function AnalyticsPage() {
       getProductWise(),
       getTeamPerformance(),
       getTicketResolutionTimes(),
-    ]).then(([ov, sp, pw, tp, rt]) => {
+      getSatisfactionOverview(),
+    ]).then(([ov, sp, pw, tp, rt, sat]) => {
       if (ov.status === 'fulfilled') setOverview(ov.value.data)
       else setError('Failed to load overview data.')
 
@@ -501,6 +584,7 @@ export default function AnalyticsPage() {
       if (pw.status === 'fulfilled') setProductData(pw.value.data)
       if (tp.status === 'fulfilled') setTeamData(tp.value.data)
       if (rt.status === 'fulfilled') setResolutionData(rt.value.data)
+      if (sat.status === 'fulfilled') setSatisfactionData(sat.value.data)
     })
   }, [])
 
@@ -586,6 +670,15 @@ export default function AnalyticsPage() {
           sub="How quickly are tickets being resolved? Lower = faster."
         />
         <ResolutionSection data={resolutionData} />
+      </section>
+
+      {/* ── 6. Customer Satisfaction ── */}
+      <section>
+        <SectionHeader
+          title="Customer Satisfaction"
+          sub="Ratings submitted by customers on resolved tickets"
+        />
+        <SatisfactionSection data={satisfactionData} />
       </section>
     </div>
   )

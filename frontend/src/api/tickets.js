@@ -9,3 +9,5 @@ export const reassignTicket = (id, assigned_to) =>
   client.patch(`/tickets/${id}/reassign`, { assigned_to })
 export const addComment = (id, comment) =>
   client.post(`/tickets/${id}/comments`, { comment })
+export const rateTicket = (ticketId, { rating, comment }) =>
+  client.post(`/tickets/${ticketId}/rate`, { rating, comment })

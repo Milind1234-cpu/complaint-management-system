@@ -28,3 +28,4 @@ export const exportStaffPerformanceCSV = () =>
 export const exportProductWiseCSV = () =>
   client.get('/analytics/export/product-wise-csv', { responseType: 'blob' })
     .then(res => _triggerDownload(res.data, 'product_wise.csv'))
+export const getSatisfactionOverview = () => client.get('/analytics/satisfaction-overview')
