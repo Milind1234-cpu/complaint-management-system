@@ -10,6 +10,9 @@ import {
   getProductWise,
   getTeamPerformance,
   getTicketResolutionTimes,
+  exportTicketsCSV,
+  exportStaffPerformanceCSV,
+  exportProductWiseCSV,
 } from '../api/analytics'
 
 // ── Design tokens (matches tailwind.config.js ink/amber palette) ──────────────
@@ -509,6 +512,15 @@ export default function AnalyticsPage() {
         <p className="text-sm text-gray-500 mt-0.5">System-wide performance metrics — admin view</p>
       </div>
 
+      <div className="flex justify-end">
+        <button
+          className="btn-secondary"
+          onClick={() => exportTicketsCSV().catch(console.error)}
+        >
+          Export All Tickets (CSV)
+        </button>
+      </div>
+
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
           {error}
@@ -526,19 +538,35 @@ export default function AnalyticsPage() {
 
       {/* ── 2. Staff performance ── */}
       <section>
-        <SectionHeader
-          title="Staff Performance"
-          sub="Click a column header in the table to sort"
-        />
+        <div className="flex items-start justify-between">
+          <SectionHeader
+            title="Staff Performance"
+            sub="Click a column header in the table to sort"
+          />
+          <button
+            className="btn-secondary shrink-0"
+            onClick={() => exportStaffPerformanceCSV().catch(console.error)}
+          >
+            Export Staff Data (CSV)
+          </button>
+        </div>
         <StaffSection data={staffData} />
       </section>
 
       {/* ── 3. Product-wise ── */}
       <section>
-        <SectionHeader
-          title="Product Analysis"
-          sub="Complaint volume and status breakdown by product"
-        />
+        <div className="flex items-start justify-between">
+          <SectionHeader
+            title="Product Analysis"
+            sub="Complaint volume and status breakdown by product"
+          />
+          <button
+            className="btn-secondary shrink-0"
+            onClick={() => exportProductWiseCSV().catch(console.error)}
+          >
+            Export Product Data (CSV)
+          </button>
+        </div>
         <ProductSection data={productData} />
       </section>
 

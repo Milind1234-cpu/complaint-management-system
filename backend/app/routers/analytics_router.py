@@ -1,9 +1,29 @@
+import csv
+import io
+from datetime import date
+
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from app.db.database import tickets_collection
 from app.models.user import UserRole
 from app.auth.dependencies import require_roles
 
 router = APIRouter(prefix="/api/analytics", tags=["Analytics"])
+
+
+def _make_csv_response(rows: list, headers: list, filename_prefix: str) -> StreamingResponse:
+    """Build an in-memory CSV and return it as a StreamingResponse download."""
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(headers)
+    writer.writerows(rows)
+    buf.seek(0)
+    today = date.today().isoformat()
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename_prefix}_{today}.csv"'},
+    )
 
 PENDING_STATUSES = ["open", "in_progress"]
 COMPLETED_STATUSES = ["resolved", "closed"]
@@ -34,9 +54,8 @@ async def get_overview(_admin=Depends(require_roles(UserRole.ADMIN))):
     }
 
 
-@router.get("/staff-performance")
-async def get_staff_performance(_admin=Depends(require_roles(UserRole.ADMIN))):
-    """Per staff member: total assigned, completed, pending, and average resolution time."""
+async def _staff_performance_data() -> list:
+    """Run the staff-performance pipeline and return processed rows."""
     pipeline = [
         {"$match": {"assigned_to": {"$ne": None}}},
         {
@@ -76,9 +95,14 @@ async def get_staff_performance(_admin=Depends(require_roles(UserRole.ADMIN))):
     return results
 
 
-@router.get("/product-wise")
-async def get_product_wise_analysis(_admin=Depends(require_roles(UserRole.ADMIN))):
-    """Complaint volume and status breakdown per product."""
+@router.get("/staff-performance")
+async def get_staff_performance(_admin=Depends(require_roles(UserRole.ADMIN))):
+    """Per staff member: total assigned, completed, pending, and average resolution time."""
+    return await _staff_performance_data()
+
+
+async def _product_wise_data() -> list:
+    """Run the product-wise pipeline and return processed rows."""
     pipeline = [
         {
             "$group": {
@@ -95,6 +119,12 @@ async def get_product_wise_analysis(_admin=Depends(require_roles(UserRole.ADMIN)
         {"$sort": {"total_complaints": -1}},
     ]
     return await tickets_collection.aggregate(pipeline).to_list(length=None)
+
+
+@router.get("/product-wise")
+async def get_product_wise_analysis(_admin=Depends(require_roles(UserRole.ADMIN))):
+    """Complaint volume and status breakdown per product."""
+    return await _product_wise_data()
 
 
 @router.get("/team-performance")
@@ -159,3 +189,71 @@ async def get_ticket_resolution_times(_admin=Depends(require_roles(UserRole.ADMI
         {"$sort": {"resolved_at": -1}},
     ]
     return await tickets_collection.aggregate(pipeline).to_list(length=None)
+
+
+@router.get("/export/tickets-csv")
+async def export_tickets_csv(_admin=Depends(require_roles(UserRole.ADMIN))):
+    """Export all tickets as a CSV file download."""
+    tickets = await tickets_collection.find({}).to_list(length=None)
+    rows = []
+    for t in tickets:
+        created_at = t.get("created_at")
+        resolved_at = t.get("resolved_at")
+        # Compute resolution time in hours
+        if created_at and resolved_at:
+            delta_seconds = (resolved_at - created_at).total_seconds()
+            resolution_hours = round(delta_seconds / 3600, 2)
+        else:
+            resolution_hours = ""
+        rows.append([
+            str(t.get("_id", "")),
+            t.get("title", ""),
+            t.get("product_name", ""),
+            t.get("status", ""),
+            t.get("priority", ""),
+            t.get("created_by_name", ""),
+            t.get("assigned_to_name", ""),
+            created_at.isoformat() if created_at else "",
+            resolved_at.isoformat() if resolved_at else "",
+            resolution_hours,
+        ])
+    headers = ["Ticket ID", "Title", "Product", "Status", "Priority",
+               "Created By", "Assigned To", "Created At", "Resolved At", "Resolution Time (hours)"]
+    return _make_csv_response(rows, headers, "tickets_export")
+
+
+@router.get("/export/staff-performance-csv")
+async def export_staff_performance_csv(_admin=Depends(require_roles(UserRole.ADMIN))):
+    """Export staff performance data as a CSV file download."""
+    data = await _staff_performance_data()
+    rows = [
+        [
+            r.get("staff_name") or r.get("staff_id", ""),
+            r.get("total_assigned", ""),
+            r.get("completed", ""),
+            r.get("pending", ""),
+            r.get("average_resolution_time_hours", ""),
+        ]
+        for r in data
+    ]
+    headers = ["Staff Name", "Total Assigned", "Completed", "Pending", "Avg Resolution Time (hours)"]
+    return _make_csv_response(rows, headers, "staff_performance")
+
+
+@router.get("/export/product-wise-csv")
+async def export_product_wise_csv(_admin=Depends(require_roles(UserRole.ADMIN))):
+    """Export product-wise complaint analysis as a CSV file download."""
+    data = await _product_wise_data()
+    rows = [
+        [
+            r.get("product_name") or r.get("product_id", ""),
+            r.get("total_complaints", ""),
+            r.get("open", ""),
+            r.get("in_progress", ""),
+            r.get("resolved", ""),
+            r.get("closed", ""),
+        ]
+        for r in data
+    ]
+    headers = ["Product Name", "Total Complaints", "Open", "In Progress", "Resolved", "Closed"]
+    return _make_csv_response(rows, headers, "product_wise")
