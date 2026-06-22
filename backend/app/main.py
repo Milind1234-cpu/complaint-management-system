@@ -13,6 +13,7 @@ from app.routers import (
     products_router,
     tickets_router,
     analytics_router,
+    ws_router,
 )
 
 app = FastAPI(
@@ -61,6 +62,7 @@ app.include_router(teams_router.router)
 app.include_router(products_router.router)
 app.include_router(tickets_router.router)
 app.include_router(analytics_router.router)
+app.include_router(ws_router.router)  # WebSocket — no prefix, serves at /ws/{user_id}
 
 
 @app.get("/", tags=["Health"])

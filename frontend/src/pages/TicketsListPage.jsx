@@ -1,7 +1,8 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { getTickets } from '../api/tickets'
 import { useAuth } from '../context/AuthContext'
+import { useWebSocket } from '../context/WebSocketContext'
 import StatusBadge from '../components/tickets/StatusBadge'
 import Badge from '../components/ui/Badge'
 import { format } from 'date-fns'
@@ -10,18 +11,30 @@ const STATUSES = ['', 'open', 'in_progress', 'resolved', 'closed']
 
 export default function TicketsListPage() {
   const { isCustomer } = useAuth()
-  const [tickets, setTickets]         = useState([])
-  const [loading, setLoading]         = useState(true)
+  const { isConnected } = useWebSocket()
+  const [tickets, setTickets]           = useState([])
+  const [loading, setLoading]           = useState(true)
   const [statusFilter, setStatusFilter] = useState('')
-  const [search, setSearch]           = useState('')
+  const [search, setSearch]             = useState('')
 
-  useEffect(() => {
+  const fetchTickets = useCallback(() => {
     setLoading(true)
     const params = statusFilter ? { status: statusFilter } : {}
     getTickets(params)
       .then((r) => setTickets(r.data))
       .finally(() => setLoading(false))
   }, [statusFilter])
+
+  useEffect(() => {
+    fetchTickets()
+  }, [fetchTickets])
+
+  // Listen for real-time ticket updates and refresh the list
+  useEffect(() => {
+    const handler = () => fetchTickets()
+    window.addEventListener('ws-ticket-update', handler)
+    return () => window.removeEventListener('ws-ticket-update', handler)
+  }, [fetchTickets])
 
   const filtered = useMemo(() => {
     if (!search.trim()) return tickets
@@ -36,7 +49,18 @@ export default function TicketsListPage() {
     <div>
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
-        <h1 className="text-xl font-bold text-gray-900">Tickets</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-xl font-bold text-gray-900">Tickets</h1>
+          {/* Live connection indicator */}
+          <span className={`flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${
+            isConnected
+              ? 'bg-green-50 text-green-700'
+              : 'bg-amber-50 text-amber-700'
+          }`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-500' : 'bg-amber-500'}`} />
+            {isConnected ? 'Live' : 'Reconnecting…'}
+          </span>
+        </div>
         <Link to="/tickets/new" className="btn-primary">
           + New Ticket
         </Link>

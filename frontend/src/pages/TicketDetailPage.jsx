@@ -8,7 +8,6 @@ import ActivityTimeline from '../components/tickets/ActivityTimeline'
 import Badge from '../components/ui/Badge'
 import { format } from 'date-fns'
 import StarRating from '../components/ui/StarRating'
-
 const STATUSES = ['open', 'in_progress', 'resolved', 'closed']
 
 export default function TicketDetailPage() {
@@ -46,6 +45,18 @@ export default function TicketDetailPage() {
       getUsers({ role: 'staff' }).then((r) => setStaffList(r.data)).catch(() => {})
     }
   }, [isAdmin])
+
+  // Listen for real-time updates targeting this specific ticket
+  useEffect(() => {
+    const handler = (event) => {
+      const msg = event.detail
+      if (msg?.ticket_id === id) {
+        load()
+      }
+    }
+    window.addEventListener('ws-ticket-update', handler)
+    return () => window.removeEventListener('ws-ticket-update', handler)
+  }, [id, load])
 
   const handleStatusUpdate = async (e) => {
     e.preventDefault()

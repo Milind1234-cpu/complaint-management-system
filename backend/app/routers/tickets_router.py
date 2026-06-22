@@ -15,6 +15,7 @@ from app.models.common import utc_now
 from app.models.user import UserOut, UserRole
 from app.auth.dependencies import get_current_user, require_roles
 from app.services.assignment_service import find_best_staff_for_team
+from app.routers.ws_router import manager as ws_manager
 
 router = APIRouter(prefix="/api/tickets", tags=["Tickets"])
 
@@ -77,6 +78,27 @@ async def create_ticket(payload: TicketCreate, current_user: UserOut = Depends(g
 
     result = await tickets_collection.insert_one(ticket_doc)
     ticket_doc["_id"] = result.inserted_id
+
+    # ── WebSocket notifications (best-effort — never block or raise) ──────
+    try:
+        ticket_id_str = str(result.inserted_id)
+        # Notify assigned staff member
+        if assigned_staff:
+            await ws_manager.send_to_user(str(assigned_staff["_id"]), {
+                "event": "ticket_assigned",
+                "ticket_id": ticket_id_str,
+                "title": ticket_doc["title"],
+                "message": f"New ticket assigned: {ticket_doc['title']}",
+            })
+        # Notify all admins
+        await ws_manager.broadcast_to_admins({
+            "event": "ticket_created",
+            "ticket_id": ticket_id_str,
+            "message": f"New complaint: {ticket_doc['title']}",
+        }, users_collection)
+    except Exception:
+        pass  # WS errors must never fail the HTTP response
+
     return TicketOut(**ticket_doc)
 
 
@@ -166,6 +188,26 @@ async def update_ticket_status(
         {"$set": update_fields, "$push": {"activity_log": log_entry}},
         return_document=True,
     )
+
+    # ── WebSocket notifications (best-effort) ─────────────────────────────
+    try:
+        # Notify the ticket creator (customer)
+        await ws_manager.send_to_user(str(ticket["created_by"]), {
+            "event": "ticket_status_updated",
+            "ticket_id": ticket_id,
+            "new_status": new_status,
+            "message": f"Your ticket status changed to {new_status}",
+        })
+        # Notify all admins
+        await ws_manager.broadcast_to_admins({
+            "event": "ticket_status_updated",
+            "ticket_id": ticket_id,
+            "new_status": new_status,
+            "message": f"Ticket status updated to {new_status}",
+        }, users_collection)
+    except Exception:
+        pass  # WS errors must never fail the HTTP response
+
     return TicketOut(**result)
 
 
@@ -199,6 +241,24 @@ async def reassign_ticket(
         },
         return_document=True,
     )
+
+    # ── WebSocket notifications (best-effort) ─────────────────────────────
+    try:
+        # Notify the newly assigned staff member
+        await ws_manager.send_to_user(str(new_staff["_id"]), {
+            "event": "ticket_reassigned",
+            "ticket_id": ticket_id,
+            "message": f"Ticket reassigned to you by {current_user.name}",
+        })
+        # Notify all admins
+        await ws_manager.broadcast_to_admins({
+            "event": "ticket_reassigned",
+            "ticket_id": ticket_id,
+            "message": f"Ticket reassigned to {new_staff['name']}",
+        }, users_collection)
+    except Exception:
+        pass  # WS errors must never fail the HTTP response
+
     return TicketOut(**result)
 
 
@@ -220,6 +280,26 @@ async def add_comment(
         {"$push": {"activity_log": log_entry}, "$set": {"updated_at": utc_now()}},
         return_document=True,
     )
+
+    # ── WebSocket notifications (best-effort) ─────────────────────────────
+    try:
+        # If commenter is staff/admin → notify the ticket creator
+        if current_user.role in (UserRole.STAFF, UserRole.ADMIN):
+            await ws_manager.send_to_user(str(ticket["created_by"]), {
+                "event": "comment_added",
+                "ticket_id": ticket_id,
+                "message": "New comment on your ticket",
+            })
+        # If commenter is customer → notify the assigned staff member
+        elif current_user.role == UserRole.CUSTOMER and ticket.get("assigned_to"):
+            await ws_manager.send_to_user(str(ticket["assigned_to"]), {
+                "event": "comment_added",
+                "ticket_id": ticket_id,
+                "message": "New customer comment on your assigned ticket",
+            })
+    except Exception:
+        pass  # WS errors must never fail the HTTP response
+
     return TicketOut(**result)
 
 
@@ -270,4 +350,24 @@ async def rate_ticket(
         },
         return_document=True,
     )
+
+    # ── WebSocket notifications (best-effort) ─────────────────────────────
+    try:
+        # Notify assigned staff and admins that a rating was submitted
+        if ticket.get("assigned_to"):
+            await ws_manager.send_to_user(str(ticket["assigned_to"]), {
+                "event": "ticket_rated",
+                "ticket_id": ticket_id,
+                "rating": payload.rating,
+                "message": f"Customer rated their ticket {payload.rating}/5 stars",
+            })
+        await ws_manager.broadcast_to_admins({
+            "event": "ticket_rated",
+            "ticket_id": ticket_id,
+            "rating": payload.rating,
+            "message": f"Ticket received a {payload.rating}/5 star rating",
+        }, users_collection)
+    except Exception:
+        pass  # WS errors must never fail the HTTP response
+
     return TicketOut(**result)
